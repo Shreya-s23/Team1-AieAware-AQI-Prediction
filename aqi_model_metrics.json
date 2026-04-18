@@ -1,0 +1,7 @@
+{
+  "mae": 18.5118,
+  "rmse": 23.3925,
+  "r2": 0.9736,
+  "target_col": "AirQualityIndex",
+  "dataset_name": "AirQualityData.csv"
+}
