@@ -1,0 +1,1 @@
+AirAware is an AI-powered web application that predicts AQI using historical pollution data and presents it through a clean, intuitive dashboard for early risk awareness. Built with Python, Streamlit, and XGBoost, it delivers role-based access, visual analytics, and downloadable insights for smarter, proactive decision-making.
