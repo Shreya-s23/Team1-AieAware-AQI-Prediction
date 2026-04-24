@@ -11,12 +11,14 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import os
+import datetime
+import time
 
 from utils import (
     authenticate, register_user, is_logged_in, current_user, logout,
     load_csv, find_target, auto_detect_target,
-    model_exists, load_model, load_metrics,
-    classify_aqi, aqi_advice, AQI_LEVELS,
+    model_exists, load_model, load_metrics, load_admin_data,
+    classify_aqi, aqi_advice, AQI_LEVELS, predict_next,
 )
 from theme import get_theme, inject_base_css
 from charts import (
@@ -25,6 +27,7 @@ from charts import (
     chart_importance, chart_correlation,
     chart_distribution, chart_alerts, chart_hourly
 )
+from sidebar import render_sidebar
 
 # ─────────────────────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -143,104 +146,6 @@ def _show_signup_form(C):
                 st.rerun()
             else:
                 st.error(msg)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  SIDEBAR
-# ─────────────────────────────────────────────────────────────────────────────
-def render_sidebar(C, df=None):
-    with st.sidebar:
-        user = current_user()
-        st.markdown(f"""
-        <div class="sb-brand">
-            <div class="sb-brand-name">Air<span class="accent">Aware</span></div>
-            <div class="sb-brand-sub">Air Quality Intelligence</div>
-        </div>""", unsafe_allow_html=True)
-
-        # User info
-        st.markdown(f"""
-        <div class="sb-info" style="margin-top:0.8rem">
-            <div class="sb-info-title">Signed in as</div>
-            <div class="sb-info-val">
-                {user.get('name','User')}<br>
-                <span style="color:{C['accent']};font-size:0.65rem">Viewer</span>
-            </div>
-        </div>""", unsafe_allow_html=True)
-
-        st.markdown('<div class="sb-div"></div>', unsafe_allow_html=True)
-
-        # Dataset upload (VIEW ONLY — user can upload their own data to view)
-        st.markdown('<div class="sb-sec"><span class="sb-sec-lbl">Load Dataset (View Only)</span></div>',
-                    unsafe_allow_html=True)
-        with st.container():
-            st.markdown('<div style="padding:0 1.3rem">', unsafe_allow_html=True)
-            uploaded = st.file_uploader("Upload CSV to view", type=["csv"],
-                                        label_visibility="collapsed",
-                                        help="You can upload data to view charts. You cannot retrain the model.")
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        st.markdown('<div class="sb-div"></div>', unsafe_allow_html=True)
-
-        # Pollutant selector
-        st.markdown('<div class="sb-sec"><span class="sb-sec-lbl">Pollutant View</span></div>',
-                    unsafe_allow_html=True)
-        with st.container():
-            st.markdown('<div style="padding:0 1.3rem">', unsafe_allow_html=True)
-            poll_opts = ["AirQualityIndex","PM2.5","PM10","NO2(GT)","CO(GT)","Temperature","Humidity"]
-            selected_poll = st.selectbox("Pollutant", poll_opts, label_visibility="collapsed")
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        st.markdown('<div class="sb-div"></div>', unsafe_allow_html=True)
-
-        # Alert threshold (view-only, just for display)
-        st.markdown('<div class="sb-sec"><span class="sb-sec-lbl">Alert Threshold</span></div>',
-                    unsafe_allow_html=True)
-        with st.container():
-            st.markdown('<div style="padding:0 1.3rem">', unsafe_allow_html=True)
-            alert_thr = st.slider("AQI", 50, 300, 100, 10, label_visibility="collapsed")
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        t_label, t_color = classify_aqi(alert_thr)
-        st.markdown(f"""
-        <div style="margin:0.4rem 1.3rem;background:{t_color}12;border:1px solid {t_color}30;
-             border-radius:8px;padding:0.7rem;text-align:center">
-            <div style="font-family:'Sora',sans-serif;font-size:1.2rem;
-                 font-weight:800;color:{t_color}">{alert_thr}</div>
-            <div style="font-size:0.6rem;font-weight:700;color:{t_color};
-                 text-transform:uppercase;letter-spacing:0.07em">{t_label}</div>
-        </div>""", unsafe_allow_html=True)
-
-        st.markdown('<div class="sb-div"></div>', unsafe_allow_html=True)
-
-        # Read-only notice
-        st.markdown(f"""
-        <div style="margin:0.5rem 1.3rem">
-            <span class="readonly-badge">View Only Mode</span>
-        </div>""", unsafe_allow_html=True)
-
-        st.markdown('<div class="sb-div"></div>', unsafe_allow_html=True)
-
-        # Dark mode
-        st.markdown('<div class="sb-sec"><span class="sb-sec-lbl">Appearance</span></div>',
-                    unsafe_allow_html=True)
-        with st.container():
-            st.markdown('<div style="padding:0 1.3rem">', unsafe_allow_html=True)
-            dark_t = st.toggle("Dark Mode", value=st.session_state.dark_mode)
-            if dark_t != st.session_state.dark_mode:
-                st.session_state.dark_mode = dark_t
-                st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        st.markdown('<div class="sb-div"></div>', unsafe_allow_html=True)
-
-        with st.container():
-            st.markdown('<div style="padding:0.6rem 1.3rem">', unsafe_allow_html=True)
-            if st.button("Sign Out", use_container_width=True):
-                logout()
-                st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
-
-    return uploaded, selected_poll, alert_thr
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -506,9 +411,282 @@ def tab_analysis_user(df, TARGET, C):
     st.markdown('</div>', unsafe_allow_html=True)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  MAIN
-# ─────────────────────────────────────────────────────────────────────────────
+def predict_next_24h(df, TARGET, model, feats):
+    """Predict next 24 hours using iterative predictions"""
+    if len(df) == 0 or model is None:
+        current_aqi = df[TARGET].iloc[-1] if len(df) > 0 else 0
+        return [current_aqi] * 24
+    
+    predictions = []
+    temp_df = df.copy()
+    
+    for _ in range(24):
+        pred = predict_next(temp_df, TARGET, model, feats)
+        if pred is None:
+            pred = temp_df[TARGET].iloc[-1]
+        predictions.append(pred)
+        
+        # Add the prediction to temp_df for next prediction
+        new_row = temp_df.iloc[-1:].copy()
+        new_row['Datetime'] = new_row['Datetime'] + pd.Timedelta(hours=1)
+        new_row[TARGET] = pred
+        temp_df = pd.concat([temp_df, new_row], ignore_index=True)
+    
+    return predictions
+def render_dynamic_dashboard(df, TARGET, C):
+    # Top bar with live time
+    current_time = datetime.datetime.now().strftime("%H:%M")
+    st.markdown(f"""
+    <div style="display:flex;align-items:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+        <h1 style="font-family:'Syne',sans-serif;font-size:17px;font-weight:700;color:{C['text']};letter-spacing:-0.3px;margin:0">
+            India Air Quality Dashboard
+        </h1>
+        <span style="font-size:11px;color:{C['text3']};background:{C['card']};padding:3px 8px;border-radius:20px;border:0.5px solid {C['border']};align-self:center">
+            Live {current_time}
+        </span>
+    </div>""", unsafe_allow_html=True)
+
+    # Region selector (simplified, since we have one dataset)
+    region_name = "Current Dataset"
+    current_aqi = df[TARGET].iloc[-1] if len(df) > 0 else 0
+    label, color = classify_aqi(current_aqi)
+    st.markdown(f"""
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+        <label style="font-size:12px;color:{C['text3']};font-weight:500;white-space:nowrap">Region</label>
+        <span style="flex:1;min-width:180px;font-family:'DM Sans',sans-serif;font-size:13px;padding:7px 12px;border:0.5px solid {C['border']};border-radius:8px;background:{C['card']};color:{C['text']}">
+            {region_name}
+        </span>
+        <div style="padding:5px 14px;border-radius:20px;font-size:12px;font-weight:500;white-space:nowrap;background:{color}22;color:{color};border:0.5px solid {color}55">
+            {label}
+        </div>
+    </div>""", unsafe_allow_html=True)
+
+    # AQI Category Breakdown
+    st.markdown(f'<div style="font-size:11px;font-weight:500;color:{C["text3"]};text-transform:uppercase;letter-spacing:0.8px;margin-bottom:8px">AQI Category Breakdown</div>', unsafe_allow_html=True)
+    cols = st.columns(6)
+    for i, (lo, hi, label, color) in enumerate(AQI_LEVELS):
+        count = ((df[TARGET] >= lo) & (df[TARGET] <= hi)).sum()
+        pct = count / max(len(df),1) * 100
+        with cols[i]:
+            st.markdown(f"""
+            <div style="border-radius:8px;padding:8px 4px;text-align:center;border:0.5px solid {C['border']};background:{C['card']}">
+                <div style="width:8px;height:8px;border-radius:50%;margin:0 auto 4px;background:{color}"></div>
+                <div style="font-size:9px;color:{C['text3']};margin-bottom:2px">{lo}–{hi}</div>
+                <div style="font-size:9px;font-weight:500;color:{C['text']};line-height:1.2">{label}</div>
+                <div style="font-size:8px;color:{C['text3']};margin-top:2px">{pct:.1f}%</div>
+            </div>""", unsafe_allow_html=True)
+
+    # Real-time Metrics
+    st.markdown(f'<div style="font-size:11px;font-weight:500;color:{C["text3"]};text-transform:uppercase;letter-spacing:0.8px;margin:16px 0 8px 0">Real-time Metrics — {region_name}</div>', unsafe_allow_html=True)
+    metrics_cols = st.columns(5)
+    pollutants = ["AQI", "PM2.5", "PM10", "NO2", "CO"]
+    units = ["index", "μg/m³", "μg/m³", "μg/m³", "mg/m³"]
+    cols_map = {"AQI": TARGET, "PM2.5": "PM2.5", "PM10": "PM10", "NO2": "NO2(GT)", "CO": "CO(GT)"}
+    for i, (poll, unit) in enumerate(zip(pollutants, units)):
+        col_name = cols_map[poll]
+        if col_name in df.columns:
+            val = df[col_name].iloc[-1] if len(df) > 0 else 0
+            if poll == "AQI":
+                _, color = classify_aqi(val)
+            else:
+                color = C['text']
+        else:
+            val = "—"
+            color = C['text3']
+        with metrics_cols[i]:
+            st.markdown(f"""
+            <div style="background:{C['card']};border-radius:8px;padding:12px 14px">
+                <div style="font-size:11px;color:{C['text3']};margin-bottom:4px">{poll}</div>
+                <div style="font-size:22px;font-weight:500;color:{color};line-height:1">{val if isinstance(val, str) else f"{val:.1f}" if poll == "CO" else f"{val:.0f}"}</div>
+                <div style="font-size:11px;color:{C['text3']};margin-top:2px">{unit}</div>
+            </div>""", unsafe_allow_html=True)
+
+    # Next 24 Hour Prediction
+    st.markdown(f'<div style="font-size:11px;font-weight:500;color:{C["text3"]};text-transform:uppercase;letter-spacing:0.8px;margin:16px 0 8px 0">Next 24 Hour AQI Prediction</div>', unsafe_allow_html=True)
+    
+    # Load model for prediction
+    model, feats = load_model()
+    predictions = []
+    if model is not None and feats is not None and len(df) > 0:
+        # Predict next 24 hours
+        predictions = predict_next_24h(df, TARGET, model, feats)
+    else:
+        current_aqi = df[TARGET].iloc[-1] if len(df) > 0 else 0
+        predictions = [current_aqi] * 24
+    
+    next_pred = predictions[0] if predictions else current_aqi
+    label_pred, color_pred = classify_aqi(next_pred)
+    
+    st.markdown(f"""
+    <div style="background:{C['card']};border:0.5px solid {C['border']};border-radius:12px;padding:12px 14px;margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <div><div style="font-size:11px;color:{C['text3']};margin-bottom:2px">Current</div><div style="font-size:20px;font-weight:500;color:{color};transition:color 0.4s">{current_aqi:.0f}</div></div>
+        <div style="font-size:18px;color:{C['text3']}">→</div>
+        <div style="flex:1;min-width:160px">
+            <div style="font-size:11px;color:{C['text3']};margin-bottom:4px">Predicted in 1 hour</div>
+            <div style="height:8px;border-radius:4px;background:{C['card']};overflow:hidden;border:1px solid {C['border']}">
+                <div style="height:100%;border-radius:4px;background:{color_pred};width:{min(next_pred/500*100,100)}%;transition:width 0.8s ease,background 0.5s"></div>
+            </div>
+            <div style="display:flex;justify-content:space-between;margin-top:2px">
+                <span style="font-size:9px;color:{C['text3']}">0</span>
+                <span style="font-size:9px;color:{C['text3']}">500</span>
+            </div>
+        </div>
+        <div><div style="font-size:11px;color:{C['text3']};margin-bottom:2px">Predicted</div><div style="font-size:20px;font-weight:500;color:{color_pred};transition:color 0.4s">{next_pred:.0f}</div></div>
+        <div style="padding:5px 14px;border-radius:20px;font-size:10px;font-weight:500;background:{color_pred}22;color:{color_pred};border:0.5px solid {color_pred}55">
+            {label_pred}
+        </div>
+    </div>""", unsafe_allow_html=True)
+
+    # Awareness Flashcards
+    st.markdown(f'<div style="font-size:11px;font-weight:500;color:{C["text3"]};text-transform:uppercase;letter-spacing:0.8px;margin:16px 0 8px 0">Awareness Flashcards</div>', unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns(3)
+    
+    # Flashcard 1: Predictive Meter
+    with col1:
+        st.markdown(f"""
+        <div style="background:{C['card']};border:0.5px solid {C['border']};border-radius:12px;overflow:hidden;min-height:320px;display:flex;flex-direction:column">
+            <div style="padding:10px 12px 0;display:flex;align-items:center;gap:6px">
+                <div style="width:20px;height:20px;border-radius:50%;background:{C['card']};border:0.5px solid {C['border']};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:500;color:{C['text3']};flex-shrink:0">1</div>
+                <div style="font-size:11px;font-weight:500;color:{C['text3']};font-family:'Syne',sans-serif">Current AQI & 24h Prediction</div>
+            </div>
+            <div style="flex:1;padding:10px 12px 12px;display:flex;flex-direction:column">
+                <div style="margin-bottom:10px">
+                    <div style="font-size:36px;font-weight:700;font-family:'Syne',sans-serif;line-height:1;color:{color};transition:color 0.4s">{current_aqi:.0f}</div>
+                    <div style="font-size:11px;font-weight:500;margin-top:2px;color:{color};transition:color 0.4s">{label}</div>
+                </div>
+                <div style="height:10px;border-radius:5px;background:linear-gradient(to right,{C['good']} 0%,{C['moderate']} 20%,{C['bad']} 40%,{C['text3']} 60%,{C['text3']} 100%);margin-bottom:6px;position:relative">
+                    <div style="position:absolute;top:-3px;width:16px;height:16px;background:{C['card']};border:2px solid {C['text']};border-radius:50%;left:{min(current_aqi/500*100,100)}%;transition:left 0.8s ease"></div>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:8px;color:{C['text3']};margin-bottom:8px">
+                    <span>Good</span><span>Moderate</span><span>Unhealthy</span><span>Hazardous</span>
+                </div>
+                <div style="font-size:10px;color:{C['text3']};font-weight:500;margin-bottom:6px">24-hour forecast</div>
+                <div style="flex:1;display:flex;flex-direction:column;gap:4px">
+        """, unsafe_allow_html=True)
+        
+        # 24-hour bars with predicted values
+        if predictions:
+            hours_indices = [0, 3, 7, 11, 15, 17, 19, 23]  # 1h, 4h, 8h, 12h, 16h, 18h, 20h, 24h
+            hour_labels = ['1h','4h','8h','12h','16h','18h','20h','24h']
+            for i, (label, idx) in enumerate(zip(hour_labels, hours_indices)):
+                pred = predictions[idx] if idx < len(predictions) else predictions[-1]
+                pred_label, bar_color = classify_aqi(pred)
+                st.markdown(f"""
+                <div style="display:flex;align-items:center;gap:6px">
+                    <span style="font-size:9px;color:{C['text3']};width:28px;flex-shrink:0">{label}</span>
+                    <div style="flex:1;height:6px;background:{C['card']};border-radius:3px;overflow:hidden;border:1px solid {C['border']}">
+                        <div style="height:100%;border-radius:3px;background:{bar_color};width:{min(pred/500*100,100)}%;transition:width 0.6s ease"></div>
+                    </div>
+                    <span style="font-size:9px;color:{C['text']};width:24px;text-align:right;flex-shrink:0">{pred:.0f}</span>
+                </div>""", unsafe_allow_html=True)
+        else:
+            st.markdown(f'<div style="font-size:10px;color:{C["text3"]}">No predictions available</div>', unsafe_allow_html=True)
+        
+        st.markdown('</div></div>', unsafe_allow_html=True)
+    
+    # Flashcard 2: Pollution Effects
+    with col2:
+        # Initialize image rotation state
+        if 'pollution_image_idx' not in st.session_state:
+            st.session_state.pollution_image_idx = 0
+        if 'last_rotation_time' not in st.session_state:
+            st.session_state.last_rotation_time = datetime.datetime.now()
+        
+        # Rotate image every 3 seconds
+        current_time = datetime.datetime.now()
+        if (current_time - st.session_state.last_rotation_time).seconds >= 3:
+            st.session_state.pollution_image_idx = (st.session_state.pollution_image_idx + 1) % 5
+            st.session_state.last_rotation_time = current_time
+        
+        pollution_scenarios = [
+            {
+                "title": "Urban Smog",
+                "description": "Heavy particulate matter from vehicle exhaust and industrial emissions creates visible smog, reducing visibility and causing respiratory irritation.",
+                "color": C['bad']
+            },
+            {
+                "title": "Industrial Pollution",
+                "description": "Factory emissions release toxic gases and fine particles that can travel long distances, affecting air quality in surrounding communities.",
+                "color": C['text3']
+            },
+            {
+                "title": "Crop Burning",
+                "description": "Agricultural waste burning releases massive amounts of PM2.5 and CO₂, contributing significantly to seasonal air pollution spikes.",
+                "color": C['moderate']
+            },
+            {
+                "title": "Construction Dust",
+                "description": "Building activities generate airborne dust particles that contain silica and other harmful substances, affecting nearby residents.",
+                "color": C['bad']
+            },
+            {
+                "title": "Traffic Congestion",
+                "description": "Idling vehicles in heavy traffic continuously emit pollutants, creating hotspots of poor air quality along major roadways.",
+                "color": C['text3']
+            }
+        ]
+        
+        current_scenario = pollution_scenarios[st.session_state.pollution_image_idx]
+        
+        st.markdown(f"""
+        <div style="background:{C['card']};border:0.5px solid {C['border']};border-radius:12px;overflow:hidden;min-height:320px;display:flex;flex-direction:column">
+            <div style="padding:10px 12px 0;display:flex;align-items:center;gap:6px">
+                <div style="width:20px;height:20px;border-radius:50%;background:{C['card']};border:0.5px solid {C['border']};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:500;color:{C['text3']};flex-shrink:0">2</div>
+                <div style="font-size:11px;font-weight:500;color:{C['text3']};font-family:'Syne',sans-serif">Pollution Effects</div>
+            </div>
+            <div style="flex:1;padding:10px 12px 12px;display:flex;flex-direction:column;gap:6px">
+                <div style="flex:1;border-radius:8px;overflow:hidden;min-height:140px;position:relative;background:linear-gradient(135deg, {current_scenario['color']}22 0%, {C['card']} 100%);border:1px solid {C['border']};display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px">
+                    <div style="width:60px;height:60px;border-radius:50%;background:{current_scenario['color']}44;border:2px solid {current_scenario['color']};display:flex;align-items:center;justify-content:center;margin-bottom:12px">
+                        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="{current_scenario['color']}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+                        </svg>
+                    </div>
+                    <div style="font-size:14px;font-weight:600;color:{C['text']};text-align:center;margin-bottom:8px">{current_scenario['title']}</div>
+                    <div style="font-size:12px;color:{C['text3']};text-align:center;line-height:1.4">{current_scenario['description']}</div>
+                </div>
+                <div style="font-size:10px;color:{C['text3']};line-height:1.4;text-align:center;padding:0 4px">
+                    Air pollution causes respiratory diseases affecting millions daily.
+                </div>
+            </div>
+        </div>""", unsafe_allow_html=True)
+    
+    # Flashcard 3: Citizen Daily Actions
+    with col3:
+        st.markdown(f"""
+        <div style="background:{C['card']};border:0.5px solid {C['border']};border-radius:12px;overflow:hidden;min-height:320px;display:flex;flex-direction:column">
+            <div style="padding:10px 12px 0;display:flex;align-items:center;gap:6px">
+                <div style="width:20px;height:20px;border-radius:50%;background:{C['card']};border:0.5px solid {C['border']};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:500;color:{C['text3']};flex-shrink:0">3</div>
+                <div style="font-size:11px;font-weight:500;color:{C['text3']};font-family:'Syne',sans-serif">Air (Prevention and Control of Pollution) Act, 1981</div>
+            </div>
+            <div style="flex:1;padding:10px 12px 12px;display:flex;flex-direction:column">
+                <div style="display:flex;flex-direction:column;gap:7px">
+        """, unsafe_allow_html=True)
+        
+        actions = [
+            ("Use public transport or carpool", "Vehicle exhaust is a primary source of urban PM2.5 and NO₂. Choosing buses, metro, or shared rides directly reduces tailpipe emissions regulated under BS-VI norms."),
+            ("Avoid burning waste, leaves, or crop residue", "Open burning is prohibited under the Air Act and actively penalised by State Pollution Control Boards. Composting is the government-endorsed alternative."),
+            ("Monitor AQI daily via the SAMEER app", "MoEFCC's official app (System of Air Quality and Weather Forecasting And Research) gives real-time AQI for your area so you can plan outdoor activity accordingly."),
+            ("Report industrial or vehicular violations", "Citizens can lodge complaints with their State Pollution Control Board or CPCB against industries violating emission norms — a right backed by Section 18 of the Air Act."),
+            ("Switch to cleaner cooking and energy sources", "Replace biomass and kerosene with LPG or electric options. CPCB identifies indoor combustion as a major contributor to household and ambient PM levels."),
+            ("Plant and protect trees in your locality", "Green belt requirements are mandated for all industrial setups under this Act. Citizens can mirror this by supporting urban tree drives and protecting existing green cover.")
+        ]
+        
+        for title, desc in actions:
+            st.markdown(f"""
+            <div style="display:flex;gap:8px;align-items:flex-start">
+                <div style="width:22px;height:22px;border-radius:6px;background:{C['card']};border:0.5px solid {C['border']};display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px">
+                    <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="{C['text3']}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="6" cy="4" r="2"/><path d="M2 11c0-2.2 1.8-4 4-4s4 1.8 4 4"/><line x1="6" y1="8" x2="6" y2="9"/>
+                    </svg>
+                </div>
+                <div>
+                    <div style="font-size:24px;font-weight:500;color:{C['text']};margin-bottom:1px">{title}</div>
+                    <div style="font-size:24px;color:{C['text3']};line-height:1.4">{desc}</div>
+                </div>
+            </div>""", unsafe_allow_html=True)
+        
+        st.markdown('</div></div></div>', unsafe_allow_html=True)
 def main():
     if not is_logged_in():
         show_auth()
@@ -517,7 +695,7 @@ def main():
     C = get_theme(st.session_state.dark_mode)
     inject_base_css(C, "user")
 
-    uploaded, selected_poll, alert_thr = render_sidebar(C)
+    uploaded, selected_poll, alert_thr = render_sidebar(C, "user")
 
     df_raw = None
     TARGET = None
@@ -531,7 +709,12 @@ def main():
                 TARGET = st.selectbox("Select target column:", candidates)
         render_topbar(C, len(df_raw), TARGET)
     else:
-        render_topbar(C)
+        # Try to load admin data
+        df_raw, TARGET = load_admin_data()
+        if df_raw is not None and TARGET is not None:
+            render_topbar(C, len(df_raw), TARGET)
+        else:
+            render_topbar(C)
 
     if df_raw is not None and TARGET is not None:
         c1, c2, ci = st.columns([1,1,3])
@@ -563,14 +746,14 @@ def main():
             return
 
         st.markdown("<br>", unsafe_allow_html=True)
-        render_kpis(df, TARGET, C)
+        render_dynamic_dashboard(df, TARGET, C)
         st.markdown("<br>", unsafe_allow_html=True)
 
-        tabs = st.tabs(["Overview", "Model Metrics", "Alerts", "Analysis"])
-        with tabs[0]: tab_overview(df, TARGET, selected_poll, C)
-        with tabs[1]: tab_model(C)
-        with tabs[2]: tab_alerts_user(df, TARGET, alert_thr, C)
-        with tabs[3]: tab_analysis_user(df, TARGET, C)
+        # Keep the old tabs for additional views
+        tabs = st.tabs(["Model Metrics", "Alerts", "Analysis"])
+        with tabs[0]: tab_model(C)
+        with tabs[1]: tab_alerts_user(df, TARGET, alert_thr, C)
+        with tabs[2]: tab_analysis_user(df, TARGET, C)
 
     else:
         # No dataset — still show model metrics
