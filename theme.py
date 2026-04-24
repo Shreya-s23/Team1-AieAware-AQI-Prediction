@@ -56,6 +56,8 @@ def inject_base_css(C: dict, role: str = "user"):
     admin_accent = "#7c3aed" if not C["is_dark"] else "#8b5cf6"
     panel_accent = admin_accent if role == "admin" else C["accent"]
 
+    margin_left = "margin-left: 300px !important;"
+
     st.markdown(f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap');
@@ -75,16 +77,32 @@ html, body, [class*="css"] {{
 /* Hide Streamlit chrome */
 #MainMenu {{ visibility: hidden !important; display: none !important; }}
 footer {{ visibility: hidden !important; }}
-header {{ visibility: hidden !important; }}
+header {{ visibility: visible !important; background: {C['bg']} !important; }}
 [data-testid="stToolbar"] {{ display: none !important; }}
 .stDeployButton {{ display: none !important; }}
 [data-testid="stDecoration"] {{ display: none !important; }}
 
 /* ── SIDEBAR ─────────────────────────────────── */
 section[data-testid="stSidebar"] {{
-    background: {C['surface']} !important;
-    border-right: 1px solid {C['border']} !important;
-    width: 270px !important;
+    width: 200px !important;
+    transform: translateX(0px) !important;
+    visibility: visible !important;
+    display: block !important;
+    position: fixed !important;
+    left: 0 !important;
+    top: 0 !important;
+    height: 100vh !important;
+    z-index: 10000 !important;
+}}
+section[data-testid="stSidebar"][aria-expanded="false"] {{
+    transform: translateX(0px) !important;
+    width: 200px !important;
+    visibility: visible !important;
+    display: block !important;
+    position: fixed !important;
+    left: 0 !important;
+    top: 0 !important;
+    height: 100vh !important;
 }}
 section[data-testid="stSidebar"] > div {{
     padding: 0 !important;
@@ -108,9 +126,28 @@ section[data-testid="stSidebar"] .stFileUploader {{
     padding: 6px !important;
 }}
 
+/* Sidebar collapse control */
+[data-testid="stSidebarCollapsedControl"] {{
+    visibility: visible !important;
+    display: block !important;
+    z-index: 1001 !important;
+    background: {C['surface']} !important;
+    border: 1px solid {C['border']} !important;
+    border-radius: 4px !important;
+}}
+button[aria-label="Collapse sidebar"] {{
+    display: none !important;
+}}
+button[aria-label="Expand sidebar"] {{
+    visibility: visible !important;
+    display: block !important;
+    z-index: 10001 !important;
+}}
+
 /* ── LAYOUT ─────────────────────────────────── */
 .block-container {{
-    padding: 0 2rem 3rem 2rem !important;
+    padding-left: 210px !important;
+    margin-left: 0 !important;
     max-width: 100% !important;
 }}
 
@@ -119,13 +156,14 @@ section[data-testid="stSidebar"] .stFileUploader {{
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 1.4rem 0;
+    padding: 2rem 0;
     border-bottom: 1px solid {C['border']};
-    margin-bottom: 2rem;
+    margin-bottom: 1rem;
+    width: 100%;
 }}
 .topbar-brand {{
     font-family: 'Sora', sans-serif;
-    font-size: 1.4rem;
+    font-size: 1.8rem;
     font-weight: 800;
     color: {C['text']};
     letter-spacing: -0.04em;
@@ -534,15 +572,21 @@ div[data-testid="stMarkdownContainer"] p {{ color: {C['text']} !important; }}
 
 /* ── FOOTER ─────────────────────────────────── */
 .footer {{
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: {C['surface']};
     border-top: 1px solid {C['border']};
-    margin-top: 3rem;
-    padding-top: 1rem;
+    padding: 0.5rem;
     text-align: center;
+    z-index: 100;
 }}
 .footer p {{
     font-size: 0.65rem;
     color: {C['text3']};
-    line-height: 1.8;
+    line-height: 1.4;
+    margin: 0;
 }}
 
 /* ── READONLY BADGE ─────────────────────────── */
