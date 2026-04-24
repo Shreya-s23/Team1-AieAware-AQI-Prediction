@@ -27,7 +27,7 @@ import os
 from utils import (
     authenticate, is_logged_in, current_user, logout,
     load_csv, auto_detect_target, find_target,
-    engineer_features, train_model,
+    engineer_features, train_model, predict_next,
     model_exists, load_model, load_metrics, save_metrics,
     classify_aqi, aqi_advice, AQI_LEVELS,
     MODEL_FILE, FEATS_FILE
@@ -39,6 +39,7 @@ from charts import (
     chart_importance, chart_correlation,
     chart_distribution, chart_alerts, chart_hourly
 )
+from sidebar import render_sidebar
 
 # ─────────────────────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -237,113 +238,46 @@ def show_auth(role):
 
         st.markdown('</div>', unsafe_allow_html=True)
 
-# ─────────────────────────────────────────────────────────────────────────────
 # SIDEBAR (Admin)
 # ─────────────────────────────────────────────────────────────────────────────
 def render_admin_sidebar(C):
     with st.sidebar:
+        st.header("AirAware")
+        st.subheader("Admin Dashboard")
         user = current_user()
-        st.markdown(f"""
-        <div class="sb-brand">
-            <div class="sb-brand-name">Air<span class="accent">Aware</span></div>
-            <div class="sb-brand-sub">Admin Dashboard</div>
-        </div>""", unsafe_allow_html=True)
-
-        # User info
-        st.markdown(f"""
-        <div class="sb-info" style="margin-top:0.8rem">
-            <div class="sb-info-title">Signed in as</div>
-            <div class="sb-info-val">
-                {user.get('name','Administrator')}<br>
-                <span style="color:#7c3aed;font-size:0.65rem">Admin</span>
-            </div>
-        </div>""", unsafe_allow_html=True)
-
-        st.markdown('<div class="sb-div"></div>', unsafe_allow_html=True)
-
-        # View toggle
-        st.markdown('<div class="sb-sec"><span class="sb-sec-lbl">Interface</span></div>',
-                    unsafe_allow_html=True)
-        with st.container():
-            st.markdown('<div style="padding:0 1.3rem">', unsafe_allow_html=True)
-            view_user = st.toggle("User View", value=st.session_state.admin_view_user)
-            if view_user != st.session_state.admin_view_user:
-                st.session_state.admin_view_user = view_user
-                st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        st.markdown('<div class="sb-div"></div>', unsafe_allow_html=True)
-
-        # Dataset upload
-        st.markdown('<div class="sb-sec"><span class="sb-sec-lbl">Training Dataset</span></div>',
-                    unsafe_allow_html=True)
-        with st.container():
-            st.markdown('<div style="padding:0 1.3rem">', unsafe_allow_html=True)
-            uploaded = st.file_uploader("Upload CSV", type=["csv"],
-                                        label_visibility="collapsed")
-            st.markdown('</div>', unsafe_allow_html=True)
-
+        st.write(f"Signed in as {user.get('name','Administrator')}")
+        st.write("Admin")
+        st.markdown("---")
+        st.subheader("Interface")
+        view_user = st.toggle("User View", value=st.session_state.admin_view_user)
+        if view_user != st.session_state.admin_view_user:
+            st.session_state.admin_view_user = view_user
+            st.rerun()
+        st.markdown("---")
+        st.subheader("Training Dataset")
+        uploaded = st.file_uploader("Upload CSV", type=["csv"], label_visibility="collapsed")
         if uploaded:
-            st.markdown(f"""
-            <div class="sb-info">
-                <div class="sb-info-title">Loaded</div>
-                <div class="sb-info-val">{uploaded.name}</div>
-            </div>""", unsafe_allow_html=True)
-
-        st.markdown('<div class="sb-div"></div>', unsafe_allow_html=True)
-
-        # Alert threshold
-        st.markdown('<div class="sb-sec"><span class="sb-sec-lbl">Alert Threshold</span></div>',
-                    unsafe_allow_html=True)
-        with st.container():
-            st.markdown('<div style="padding:0 1.3rem">', unsafe_allow_html=True)
-            alert_thr = st.slider("AQI", 50, 300, 100, 10, label_visibility="collapsed")
-            st.markdown('</div>', unsafe_allow_html=True)
-
+            st.write(f"Loaded {uploaded.name}")
+        st.markdown("---")
+        st.subheader("Alert Threshold")
+        alert_thr = st.slider("AQI", 50, 300, 100, label_visibility="collapsed")
+        from utils import classify_aqi
         t_label, t_color = classify_aqi(alert_thr)
-        st.markdown(f"""
-        <div style="margin:0.4rem 1.3rem;background:{t_color}12;border:1px solid {t_color}30;
-             border-radius:8px;padding:0.7rem;text-align:center">
-            <div style="font-family:'Sora',sans-serif;font-size:1.2rem;
-                 font-weight:800;color:{t_color}">{alert_thr}</div>
-            <div style="font-size:0.6rem;font-weight:700;color:{t_color};
-                 text-transform:uppercase;letter-spacing:0.07em">{t_label}</div>
-        </div>""", unsafe_allow_html=True)
-
-        st.markdown('<div class="sb-div"></div>', unsafe_allow_html=True)
-
-        # Pollutant selector
-        st.markdown('<div class="sb-sec"><span class="sb-sec-lbl">Pollutant View</span></div>',
-                    unsafe_allow_html=True)
-        with st.container():
-            st.markdown('<div style="padding:0 1.3rem">', unsafe_allow_html=True)
-            poll_opts = ["AirQualityIndex","PM2.5","PM10","NO2(GT)","CO(GT)","Temperature","Humidity"]
-            selected_poll = st.selectbox("Pollutant", poll_opts, label_visibility="collapsed")
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        st.markdown('<div class="sb-div"></div>', unsafe_allow_html=True)
-
-        # Dark mode
-        st.markdown('<div class="sb-sec"><span class="sb-sec-lbl">Appearance</span></div>',
-                    unsafe_allow_html=True)
-        with st.container():
-            st.markdown('<div style="padding:0 1.3rem">', unsafe_allow_html=True)
-            dark_t = st.toggle("Dark Mode", value=st.session_state.dark_mode)
-            if dark_t != st.session_state.dark_mode:
-                st.session_state.dark_mode = dark_t
-                st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        st.markdown('<div class="sb-div"></div>', unsafe_allow_html=True)
-
-        # Logout
-        with st.container():
-            st.markdown('<div style="padding:0 1.3rem">', unsafe_allow_html=True)
-            if st.button("Sign Out", use_container_width=True):
-                logout()
-                st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
-
+        st.write(f"{alert_thr} - {t_label}")
+        st.markdown("---")
+        st.subheader("Pollutant View")
+        poll_opts = ["AirQualityIndex","PM2.5","PM10","NO2(GT)","CO(GT)","Temperature","Humidity"]
+        selected_poll = st.selectbox("Pollutant", poll_opts, label_visibility="collapsed")
+        st.markdown("---")
+        st.subheader("Appearance")
+        dark_t = st.toggle("Dark Mode", value=st.session_state.dark_mode)
+        if dark_t != st.session_state.dark_mode:
+            st.session_state.dark_mode = dark_t
+            st.rerun()
+        st.markdown("---")
+        if st.button("Sign Out", use_container_width=True):
+            logout()
+            st.rerun()
     return uploaded, selected_poll, alert_thr
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -351,56 +285,37 @@ def render_admin_sidebar(C):
 # ─────────────────────────────────────────────────────────────────────────────
 def render_user_sidebar(C):
     with st.sidebar:
+        st.header("AirAware")
+        st.subheader("Air Quality Intelligence")
         user = current_user()
-        st.markdown(f"""
-        <div class="sb-brand">
-            <div class="sb-brand-name">Air<span class="accent">Aware</span></div>
-            <div class="sb-brand-sub">User Dashboard</div>
-        </div>""", unsafe_allow_html=True)
-
-        # User info
-        st.markdown(f"""
-        <div class="sb-info" style="margin-top:0.8rem">
-            <div class="sb-info-title">Signed in as</div>
-            <div class="sb-info-val">
-                {user.get('name','User')}<br>
-                <span style="color:#059669;font-size:0.65rem">User</span>
-            </div>
-        </div>""", unsafe_allow_html=True)
-
-        st.markdown('<div class="sb-div"></div>', unsafe_allow_html=True)
-
-        # View-only interface message
-        st.markdown(f"""
-        <div style="background:{C['card']};border:1px solid {C['border']};
-             border-radius:8px;padding:1rem;margin-bottom:1rem;text-align:center">
-            <span style="font-size:0.9rem;color:{C['text']};font-weight:600">
-                This is a view-only interface.
-            </span>
-        </div>""", unsafe_allow_html=True)
-
-        # Dark mode
-        st.markdown('<div class="sb-sec"><span class="sb-sec-lbl">Appearance</span></div>',
-                    unsafe_allow_html=True)
-        with st.container():
-            st.markdown('<div style="padding:0 1.3rem">', unsafe_allow_html=True)
-            dark_t = st.toggle("Dark Mode", value=st.session_state.dark_mode)
-            if dark_t != st.session_state.dark_mode:
-                st.session_state.dark_mode = dark_t
-                st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        st.markdown('<div class="sb-div"></div>', unsafe_allow_html=True)
-
-        # Logout
-        with st.container():
-            st.markdown('<div style="padding:0 1.3rem">', unsafe_allow_html=True)
-            if st.button("Sign Out", use_container_width=True):
-                logout()
-                st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
-
-    return None
+        st.write(f"Signed in as {user.get('name','User')}")
+        st.write("Viewer")
+        st.markdown("---")
+        st.subheader("Load Dataset (View Only)")
+        uploaded = st.file_uploader("Upload CSV to view", type=["csv"], label_visibility="collapsed")
+        st.markdown("---")
+        st.subheader("Pollutant View")
+        poll_opts = ["AirQualityIndex","PM2.5","PM10","NO2(GT)","CO(GT)","Temperature","Humidity"]
+        selected_poll = st.selectbox("Pollutant", poll_opts, label_visibility="collapsed")
+        st.markdown("---")
+        st.subheader("Alert Threshold")
+        alert_thr = st.slider("AQI", 50, 300, 100, label_visibility="collapsed")
+        from utils import classify_aqi
+        t_label, t_color = classify_aqi(alert_thr)
+        st.write(f"{alert_thr} - {t_label}")
+        st.markdown("---")
+        st.write("View Only Mode")
+        st.markdown("---")
+        st.subheader("Appearance")
+        dark_t = st.toggle("Dark Mode", value=st.session_state.dark_mode)
+        if dark_t != st.session_state.dark_mode:
+            st.session_state.dark_mode = dark_t
+            st.rerun()
+        st.markdown("---")
+        if st.button("Sign Out", use_container_width=True):
+            logout()
+            st.rerun()
+    return uploaded, selected_poll, alert_thr
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TOPBAR
@@ -465,33 +380,303 @@ def render_kpis(df, TARGET, C):
 # ─────────────────────────────────────────────────────────────────────────────
 # USER TABS (Simplified)
 # ─────────────────────────────────────────────────────────────────────────────
-def user_tab_overview(C):
-    st.markdown('<div class="cw"><div class="cw-title">Air Quality Insights</div>', unsafe_allow_html=True)
+def user_tab_overview(df, TARGET, selected_poll, C):
+    if df is None or df.empty:
+        st.error("No data available.")
+        return
 
-    cards = [
-        ("AQI Levels", "Current AQI levels in your area.", "#059669"),
-        ("Pollution Sources", "Major pollutants affecting air quality.", "#d97706"),
-        ("Improvement Tips", "Steps to improve air quality in your area.", "#7c3aed")
+    import datetime
+    live_time = datetime.datetime.now().strftime('%H:%M')
+
+    aqi_val = df[TARGET].iloc[-1]
+    label, color = classify_aqi(aqi_val)
+
+    # Forecast next hour AQI
+    forecast_aqi = aqi_val
+    try:
+        model, feats = load_model()
+        if model and feats:
+            last_row = df[feats].iloc[-1:].values
+            forecast_aqi = model.predict(last_row)[0]
+    except:
+        pass
+    forecast_label, forecast_color = classify_aqi(forecast_aqi)
+
+    # Pollutant values
+    pm25 = df.get('PM2.5', pd.Series([0])).iloc[-1] if 'PM2.5' in df.columns else 0
+    pm10 = df.get('PM10', pd.Series([0])).iloc[-1] if 'PM10' in df.columns else 0
+    no2 = df.get('NO2(GT)', pd.Series([0])).iloc[-1] if 'NO2(GT)' in df.columns else df.get('NO2', pd.Series([0])).iloc[-1] if 'NO2' in df.columns else 0
+    co = df.get('CO(GT)', pd.Series([0])).iloc[-1] if 'CO(GT)' in df.columns else df.get('CO', pd.Series([0])).iloc[-1] if 'CO' in df.columns else 0
+
+    # AQI levels
+    levels = [
+        (0, 50, 'Good', '#22c55e'),
+        (51, 100, 'Satisfactory', '#86efac'),
+        (101, 200, 'Moderate', '#facc15'),
+        (201, 300, 'Poor', '#f97316'),
+        (301, 400, 'Very Poor', '#ef4444'),
+        (401, 500, 'Severe', '#7c3aed')
     ]
 
-    cols = st.columns(len(cards))
-    for i, (title, description, color) in enumerate(cards):
-        with cols[i]:
-            st.markdown(f"""
-            <div class="info-card" style="background:{color}15;border:1px solid {color}30;
-                 border-radius:12px;padding:1.5rem;text-align:center;cursor:pointer;transition:0.3s;">
-                <div style="font-size:1.2rem;font-weight:700;color:{color}">{title}</div>
-                <div style="font-size:0.85rem;color:#666;margin-top:0.5rem">{description}</div>
-            </div>
-            <style>
-            .info-card:hover {{
-                background: {color}30;
-                transform: scale(1.05);
-            }}
-            </style>
-            """, unsafe_allow_html=True)
+    st.markdown(f"""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;700&family=DM+Sans:wght@300;400;500&display=swap');
+    .wrap {{padding:12px 0;max-width:680px;margin:0 auto}}
+    .top-bar {{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px}}
+    .top-bar h1 {{font-family:'Syne',sans-serif;font-size:24px;font-weight:700;color:{C['text']};letter-spacing:-0.3px}}
+    .top-bar span {{font-size:11px;color:{C['text3']};background:{C['card']};padding:3px 8px;border-radius:20px;border:0.5px solid {C['border']}}}
+    .region-bar {{display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap}}
+    .region-bar label {{font-size:12px;color:{C['text3']};font-weight:500;white-space:nowrap}}
+    .region-bar select {{flex:1;min-width:180px;font-family:'DM Sans',sans-serif;font-size:13px;padding:7px 12px;border:0.5px solid {C['border']};border-radius:8px;background:{C['card']};color:{C['text']};cursor:pointer}}
+    .aqi-badge {{padding:5px 14px;border-radius:20px;font-size:12px;font-weight:500;white-space:nowrap;transition:all 0.3s}}
+    .section-label {{font-size:14px;font-weight:500;color:{C['text3']};text-transform:uppercase;letter-spacing:0.8px;margin-bottom:8px}}
+    .cat-grid {{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-bottom:16px}}
+    .cat-item {{border-radius:8px;padding:8px 4px;text-align:center;border:0.5px solid {C['border']};background:{C['card']}}}
+    .cat-item .cat-dot {{width:8px;height:8px;border-radius:50%;margin:0 auto 4px}}
+    .cat-item .cat-range {{font-size:14px;color:{C['text3']};margin-bottom:2px}}
+    .cat-item .cat-name {{font-size:14px;font-weight:500;color:{C['text']};line-height:1.2}}
+    .metrics-grid {{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:16px}}
+    .metric-card {{background:{C['card']};border-radius:8px;padding:12px 14px;border:0.5px solid {C['border']}}}
+    .metric-card .m-label {{font-size:14px;color:{C['text3']};margin-bottom:4px}}
+    .metric-card .m-val {{font-size:22px;font-weight:500;color:{C['text']};line-height:1}}
+    .metric-card .m-unit {{font-size:14px;color:{C['text3']};margin-top:2px}}
+    .next-hour {{background:{C['card']};border:0.5px solid {C['border']};border-radius:12px;padding:12px 14px;margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}}
+    .next-hour .nh-label {{font-size:14px;color:{C['text3']};margin-bottom:2px}}
+    .next-hour .nh-val {{font-size:20px;font-weight:500;color:{C['text']}}}
+    .nh-bar {{flex:1;min-width:160px;height:8px;border-radius:4px;background:{C['card']};overflow:hidden}}
+    .nh-fill {{height:100%;border-radius:4px;transition:width 0.8s ease}}
+    .nh-arrow {{font-size:18px;color:{C['text3']}}}
+    .stSelectbox label {{font-size:14px !important;}}
+    .flashcard-row {{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px}}
+    .flashcard {{background:{C['card']};border:0.5px solid {C['border']};border-radius:12px;overflow:hidden;min-height:320px;display:flex;flex-direction:column;transition:all 0.3s ease}}
+    .flashcard:hover {{transform:translateY(-5px);box-shadow:0 10px 25px rgba(0,0,0,0.1);background:{C['bg']}}}
+    .fc-head {{padding:10px 12px 0;display:flex;align-items:center;gap:6px}}
+    .fc-num {{width:20px;height:20px;border-radius:50%;background:{C['card']};border:0.5px solid {C['border']};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:500;color:{C['text3']};flex-shrink:0}}
+    .fc-title {{font-size:11px;font-weight:500;color:{C['text3']};font-family:'Syne',sans-serif}}
+    .fc-body {{flex:1;padding:10px 12px 12px;display:flex;flex-direction:column}}
+    .pred-current {{margin-bottom:10px}}
+    .pred-current .pc-num {{font-size:36px;font-weight:700;font-family:'Syne',sans-serif;line-height:1;transition:color 0.4s}}
+    .pred-current .pc-cat {{font-size:14px;font-weight:500;margin-top:2px;transition:color 0.4s}}
+    .meter-track {{height:10px;border-radius:5px;background:linear-gradient(to right,#22c55e 0%,#86efac 16%,#facc15 33%,#fb923c 50%,#ef4444 67%,#7c3aed 83%,#1e0a4a 100%);margin-bottom:6px;position:relative}}
+    .meter-pointer {{position:absolute;top:-3px;width:16px;height:16px;background:{C['card']};border:2px solid {C['text']};border-radius:50%;transform:translateX(-50%);transition:left 0.8s ease}}
+    .meter-labels {{display:flex;justify-content:space-between;font-size:14px;color:{C['text3']};margin-bottom:8px}}
+    .pred-24h {{font-size:14px;color:{C['text3']};font-weight:500;margin-bottom:6px}}
+    .pred-bars {{display:flex;flex-direction:column;gap:4px}}
+    .pred-row {{display:flex;align-items:center;gap:6px}}
+    .pred-row .pr-time {{font-size:14px;color:{C['text3']};width:28px;flex-shrink:0}}
+    .pred-row .pr-bar-wrap {{flex:1;height:6px;background:{C['card']};border-radius:3px;overflow:hidden}}
+    .pred-row .pr-bar {{height:100%;border-radius:3px;transition:width 0.6s ease}}
+    .pred-row .pr-val {{font-size:14px;color:{C['text']};width:24px;text-align:right;flex-shrink:0}}
+    .img-slider {{flex:1;display:flex;flex-direction:column;gap:6px}}
+    .img-frame {{flex:1;border-radius:8px;overflow:hidden;min-height:140px;position:relative;background:{C['card']}}}
+    .img-slide {{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity 0.6s ease}}
+    .img-slide.active {{opacity:1}}
+    .img-dots {{display:flex;gap:4px;justify-content:center}}
+    .img-dot {{width:5px;height:5px;border-radius:50%;background:{C['border']};cursor:pointer;transition:background 0.3s}}
+    .img-dot.active {{background:{C['text']}}}
+    .img-caption {{font-size:10px;color:{C['text3']};line-height:1.4;text-align:center;padding:0 4px}}
+    .carousel {{position:relative;overflow:hidden;flex:1;border-radius:8px;min-height:140px;background:{C['card']}}}
+    .slide {{position:absolute;inset:0;opacity:0;transition:opacity 0.6s ease;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:10px}}
+    .slide.active {{opacity:1}}
+    .slide svg {{width:60px;height:60px;margin-bottom:8px}}
+    .slide text {{font-size:8px;fill:{C['text']}}}
+    .dots {{display:flex;gap:4px;justify-content:center;margin-top:6px}}
+    .dot {{width:8px;height:8px;border-radius:50%;background:{C['border']};transition:background 0.3s}}
+    .dot.active {{background:{C['text']}}}
+    .caption {{font-size:14px;color:{C['text3']};line-height:1.4;text-align:center;padding:0 4px;margin-top:6px;position:relative;height:40px}}
+    .slide-caption {{opacity:0;position:absolute;inset:0;transition:opacity 0.6s ease}}
+    .slide-caption.active {{opacity:1}}
+    .slide-caption:nth-child(1) {{animation:fade 15s infinite}}
+    .slide-caption:nth-child(2) {{animation:fade 15s infinite 3s}}
+    .slide-caption:nth-child(3) {{animation:fade 15s infinite 6s}}
+    .slide-caption:nth-child(4) {{animation:fade 15s infinite 9s}}
+    .slide-caption:nth-child(5) {{animation:fade 15s infinite 12s}}
+    .slide:nth-child(1) {{animation:fade 15s infinite}}
+    .slide:nth-child(2) {{animation:fade 15s infinite 3s}}
+    .slide:nth-child(3) {{animation:fade 15s infinite 6s}}
+    .slide:nth-child(4) {{animation:fade 15s infinite 9s}}
+    .slide:nth-child(5) {{animation:fade 15s infinite 12s}}
+    @keyframes fade {{0%,20% {{opacity:1}} 25%,100% {{opacity:0}}}}
+    .gov-list {{display:flex;flex-direction:column;gap:8px}}
+    .gov-title {{font-size:24px;font-weight:600;color:{C['text']};margin-bottom:8px;text-align:center}}
+    .gov-item {{display:flex;gap:8px;align-items:flex-start}}
+    .gov-icon {{width:22px;height:22px;border-radius:6px;background:{C['card']};border:0.5px solid {C['border']};display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}}
+    .gov-text .gt-title {{font-size:10px;font-weight:500;color:{C['text']};margin-bottom:1px}}
+    .gov-text .gt-desc {{font-size:14px;color:{C['text3']};line-height:1.4}}
+    </style>
+    """, unsafe_allow_html=True)
 
-    st.markdown('</div>', unsafe_allow_html=True)
+    # Top bar
+    st.markdown(f"""
+    <div class="wrap">
+      <div class="top-bar">
+        <h1>Air Quality Dashboard</h1>
+        <span id="live-time">Live {live_time}</span>
+      </div>
+    """, unsafe_allow_html=True)
+
+    # Region selector (pollutant)
+    selected_poll = st.selectbox("Select Pollutant View", ["AirQualityIndex", "PM2.5", "PM10", "NO2", "CO"], index=0, key="poll_select")
+    st.markdown(f"""
+      <div class="aqi-badge" style="background:{color}22;color:{color};border:0.5px solid {color}55">{label}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # AQI Category Breakdown
+    st.markdown('<div class="section-label">AQI Category Breakdown</div>', unsafe_allow_html=True)
+    cat_html = '<div class="cat-grid">'
+    for lo, hi, name, col in levels:
+        cat_html += f'<div class="cat-item"><div class="cat-dot" style="background:{col}"></div><div class="cat-range">{lo}–{hi}</div><div class="cat-name">{name}</div></div>'
+    cat_html += '</div>'
+    st.markdown(cat_html, unsafe_allow_html=True)
+
+    # Metrics
+    st.markdown('<div class="section-label">Real-time Metrics</div>', unsafe_allow_html=True)
+    st.markdown(f"""
+    <div class="metrics-grid">
+      <div class="metric-card"><div class="m-label">AQI Index</div><div class="m-val" style="color:{color}">{aqi_val:.0f}</div><div class="m-unit">index</div></div>
+      <div class="metric-card"><div class="m-label">PM2.5</div><div class="m-val">{pm25:.1f}</div><div class="m-unit">μg/m³</div></div>
+      <div class="metric-card"><div class="m-label">PM10</div><div class="m-val">{pm10:.1f}</div><div class="m-unit">μg/m³</div></div>
+      <div class="metric-card"><div class="m-label">NO₂</div><div class="m-val">{no2:.1f}</div><div class="m-unit">μg/m³</div></div>
+      <div class="metric-card"><div class="m-label">CO</div><div class="m-val">{co:.2f}</div><div class="m-unit">mg/m³</div></div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Next Hour Prediction
+    st.markdown('<div class="section-label">Next Hour AQI Prediction</div>', unsafe_allow_html=True)
+    fill_width = min(forecast_aqi / 500 * 100, 100)
+    st.markdown(f"""
+    <div class="next-hour">
+      <div><div class="nh-label">Current</div><div class="nh-val" style="color:{color}">{aqi_val:.0f}</div></div>
+      <div class="nh-arrow">→</div>
+      <div style="flex:1;min-width:160px"><div class="nh-label" style="margin-bottom:4px">Predicted in 1 hour</div><div class="nh-bar"><div class="nh-fill" style="width:{fill_width}%;background:{forecast_color}"></div></div></div>
+      <div><div class="nh-label">Predicted</div><div class="nh-val" style="color:{forecast_color}">{forecast_aqi:.0f}</div></div>
+      <div class="aqi-badge" style="background:{forecast_color}22;color:{forecast_color};border:0.5px solid {forecast_color}55">{forecast_label}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Flashcards
+    st.markdown('<div class="section-label">Awareness Flashcards</div>', unsafe_allow_html=True)
+    st.markdown('<div class="flashcard-row">', unsafe_allow_html=True)
+
+    # Flashcard 1: Predictive Meter
+    pointer_left = min(aqi_val / 500 * 100, 100)
+    pred_rows = []
+    for i in range(8):
+        time = ['1h','4h','8h','12h','16h','18h','20h','24h'][i]
+        val = forecast_aqi + (i * 2)  # dummy progression
+        width = min(val / 500 * 100, 100)
+        pred_rows.append(f'<div class="pred-row"><span class="pr-time">{time}</span><div class="pr-bar-wrap"><div class="pr-bar" style="width:{width}%;background:{forecast_color}"></div></div><span class="pr-val">{val:.0f}</span></div>')
+    pred_html = ''.join(pred_rows)
+    st.markdown(f"""
+    <div class="flashcard">
+      <div class="fc-head"><div class="fc-num">1</div><div class="fc-title">Predictive Meter</div></div>
+      <div class="fc-body">
+        <div class="pred-current"><div class="pc-num" style="color:{color}">{aqi_val:.0f}</div><div class="pc-cat" style="color:{color}">{label}</div></div>
+        <div class="meter-track"><div class="meter-pointer" style="left:{pointer_left}%"></div></div>
+        <div class="meter-labels"><span>Good</span><span>Mod</span><span>Poor</span><span>Severe</span></div>
+        <div class="pred-24h">24-hour forecast</div>
+        <div class="pred-bars">{pred_html}</div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Flashcard 2: Pollution Effects
+    st.markdown(f"""
+    <div class="flashcard">
+      <div class="fc-head"><div class="fc-num">2</div><div class="fc-title">Pollution Effects</div></div>
+      <div class="fc-body">
+        <div class="carousel">
+          <div class="slide">
+            <svg viewBox="0 0 100 100">
+              <circle cx="50" cy="50" r="30" fill="#ccc"/>
+              <text x="50" y="55" text-anchor="middle" font-size="8">Smog</text>
+            </svg>
+          </div>
+          <div class="slide">
+            <svg viewBox="0 0 100 100">
+              <circle cx="50" cy="40" r="15" fill="#f0f"/>
+              <text x="50" y="45" text-anchor="middle" font-size="6">Head</text>
+              <ellipse cx="50" cy="70" rx="20" ry="15" fill="#f0f"/>
+              <text x="50" y="75" text-anchor="middle" font-size="6">Lungs</text>
+            </svg>
+          </div>
+          <div class="slide">
+            <svg viewBox="0 0 100 100">
+              <circle cx="50" cy="35" r="10" fill="#ff0"/>
+              <text x="50" y="40" text-anchor="middle" font-size="6">Child</text>
+              <rect x="40" y="45" width="20" height="30" fill="#ff0"/>
+              <text x="50" y="60" text-anchor="middle" font-size="6">Body</text>
+            </svg>
+          </div>
+          <div class="slide">
+            <svg viewBox="0 0 100 100">
+              <rect x="30" y="50" width="40" height="30" fill="#888"/>
+              <text x="50" y="65" text-anchor="middle" font-size="6">Factory</text>
+              <rect x="35" y="30" width="30" height="20" fill="#888"/>
+              <text x="50" y="40" text-anchor="middle" font-size="6">Chimney</text>
+              <circle cx="50" cy="25" r="5" fill="#000"/>
+              <text x="50" y="28" text-anchor="middle" font-size="4">Smoke</text>
+            </svg>
+          </div>
+          <div class="slide">
+            <svg viewBox="0 0 100 100">
+              <polygon points="50,80 40,60 60,60" fill="#f00"/>
+              <text x="50" y="70" text-anchor="middle" font-size="6">Fire</text>
+              <rect x="35" y="80" width="30" height="10" fill="#8B4513"/>
+              <text x="50" y="87" text-anchor="middle" font-size="6">Stubble</text>
+            </svg>
+          </div>
+        </div>
+        <div class="dots">
+          <span class="dot active"></span>
+          <span class="dot"></span>
+          <span class="dot"></span>
+          <span class="dot"></span>
+          <span class="dot"></span>
+        </div>
+        <div class="caption">
+          <div class="slide-caption active">Smog: Heavy particulate matter from vehicle exhaust and industrial emissions creates visible smog, reducing visibility and causing respiratory irritation.</div>
+          <div class="slide-caption">Health Impact: Air pollution causes respiratory diseases affecting millions daily, with long-term effects on cardiovascular health.</div>
+          <div class="slide-caption">Children at Risk: Children exposed to toxic air face stunted lung growth and lifelong illness, impacting development and education.</div>
+          <div class="slide-caption">Industrial Emissions: Factories release pollutants that contribute to PM2.5 and NO₂ levels, regulated but often exceeding safe limits.</div>
+          <div class="slide-caption">Stubble Burning: Farmers burning crop residue releases harmful smoke, banned but still practiced, worsening air quality in rural areas.</div>
+        </div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Flashcard 3: Govt Guidelines
+    st.markdown("""
+    <div class="flashcard">
+      <div class="fc-head"><div class="fc-num">3</div><div class="fc-title">Govt. Guidelines</div></div>
+      <div class="fc-body">
+        <div class="gov-list">
+          <div class="gov-title">Control of Air Pollution (Grant, Refusal or Cancellation of Consent) Guidelines, 2025</div>
+          <div class="gov-item">
+            <div class="gov-text"><div class="gt-desc">Use public transport or carpool — Vehicle exhaust is a primary source of urban PM2.5 and NO₂. Choosing buses, metro, or shared rides directly reduces tailpipe emissions regulated under BS-VI norms.</div></div>
+          </div>
+          <div class="gov-item">
+            <div class="gov-text"><div class="gt-desc">Avoid burning waste, leaves, or crop residue — Open burning is prohibited under the Air Act and actively penalised by State Pollution Control Boards. Composting is the government-endorsed alternative.</div></div>
+          </div>
+          <div class="gov-item">
+            <div class="gov-text"><div class="gt-desc">Monitor AQI daily via the SAMEER app — MoEFCC's official app (System of Air Quality and Weather Forecasting And Research) gives real-time AQI for your area so you can plan outdoor activity accordingly.</div></div>
+          </div>
+          <div class="gov-item">
+            <div class="gov-text"><div class="gt-desc">Report industrial or vehicular violations — Citizens can lodge complaints with their State Pollution Control Board or CPCB against industries violating emission norms — a right backed by Section 18 of the Air Act.</div></div>
+          </div>
+          <div class="gov-item">
+            <div class="gov-text"><div class="gt-desc">Switch to cleaner cooking and energy sources — Replace biomass and kerosene with LPG or electric options. CPCB identifies indoor combustion as a major contributor to household and ambient PM levels.</div></div>
+          </div>
+          <div class="gov-item">
+            <div class="gov-text"><div class="gt-desc">Plant and protect trees in your locality — Green belt requirements are mandated for all industrial setups under this Act. Citizens can mirror this by supporting urban tree drives and protecting existing green cover, which absorbs particulate matter and CO₂.</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown('</div></div>', unsafe_allow_html=True)
 
 def user_tab_model_metrics(C):
     saved = load_metrics()
@@ -522,34 +707,73 @@ def user_tab_model_metrics(C):
 
     st.markdown('</div>', unsafe_allow_html=True)
 
-def user_tab_alerts(C):
-    st.markdown('<div class="cw"><div class="cw-title">Air Quality Alerts</div>', unsafe_allow_html=True)
-    st.markdown("""
-    Alerts are triggered based on AQI levels:
-    - **Good (0-50)**: No action needed.
-    - **Moderate (51-100)**: Sensitive groups should limit prolonged outdoor exertion.
-    - **Unhealthy for Sensitive Groups (101-150)**: People with respiratory issues should avoid outdoor activities.
-    - **Unhealthy (151-200)**: Everyone should limit outdoor exertion.
-    - **Very Unhealthy (201-300)**: Avoid all outdoor activities.
-    - **Hazardous (301+)**: Stay indoors and use air purifiers.
-    """)
-    st.markdown('</div>', unsafe_allow_html=True)
-    st.markdown('<div style="text-align:center;margin-top:1rem;color:#666;font-size:0.9rem">Result: Stay informed about air quality to protect your health.</div>', unsafe_allow_html=True)
+def user_tab_alerts(df, TARGET, alert_thr, C):
+    aqi_vals = df[TARGET]
+    is_norm = aqi_vals.abs().max() < 20
+    threshold = ((alert_thr - float(aqi_vals.mean())) / (float(aqi_vals.std()) or 1.0)
+                 if is_norm else float(alert_thr))
+    alert_df  = df[df[TARGET] > threshold]
+    alert_pct = len(alert_df) / max(len(df),1) * 100
 
-def user_tab_analysis(C):
-    st.markdown('<div class="cw"><div class="cw-title">AQI Category Breakdown</div>', unsafe_allow_html=True)
-    total = 100  # Dummy total
-    for col_w, (lo, hi, label, color) in zip(st.columns(len(AQI_LEVELS)), AQI_LEVELS):
-        pct = 10  # Dummy percentage
+    if len(alert_df) == 0:
+        bc, bt, bb = C["good"], "All Clear", "All readings within threshold."
+    elif alert_pct > 30:
+        bc, bt, bb = C["bad"], f"High Alert — {len(alert_df):,} records exceed threshold", \
+                     f"{alert_pct:.1f}% above AQI {alert_thr}."
+    else:
+        bc, bt, bb = C["moderate"], f"Caution — {len(alert_df):,} exceedances", \
+                     f"{alert_pct:.1f}% above AQI {alert_thr}."
+
+    st.markdown(f'<div class="banner" style="--bc:{bc}"><div class="banner-title">{bt}</div>'
+                f'<div class="banner-text">{bb}</div></div>', unsafe_allow_html=True)
+
+    for col_w, (lbl, val, clr) in zip(st.columns(4), [
+        ("Total Records", f"{len(df):,}", C["text2"]),
+        ("Alert Records", f"{len(alert_df):,}", C["bad"] if len(alert_df) > 0 else C["good"]),
+        ("Alert Rate", f"{alert_pct:.1f}%", C["moderate"]),
+        ("Peak AQI", f"{alert_df[TARGET].max():.0f}" if len(alert_df) > 0 else "—", C["bad"]),
+    ]):
         with col_w:
             st.markdown(f"""
-            <div class="cat-cell" style="--cbg:{color}12;--cborder:{color}30;--ccolor:{color}">
-                <div class="cat-name">{label}</div>
-                <div class="cat-pct">{pct:.1f}%</div>
-                <div class="cat-count">{int(pct)} days</div>
+            <div class="stat-card" style="padding:1rem 1.2rem">
+                <div class="stat-accent-bar" style="--sc:{clr}"></div>
+                <div class="stat-label">{lbl}</div>
+                <div class="stat-value" style="--sv:{clr};font-size:1.6rem">{val}</div>
             </div>""", unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown('<div class="cw">', unsafe_allow_html=True)
+    st.pyplot(chart_alerts(df, TARGET, threshold, C), use_container_width=True); plt.close()
     st.markdown('</div>', unsafe_allow_html=True)
-    st.markdown('<div style="text-align:center;margin-top:1rem;color:#666;font-size:0.9rem">Result: This shows typical distribution of air quality days in a month.</div>', unsafe_allow_html=True)
+
+def user_tab_analysis(df, TARGET, C):
+    st.markdown('<div class="cw"><div class="cw-title">AQI Category Breakdown</div>', unsafe_allow_html=True)
+    
+    # Calculate actual distribution from data
+    aqi_vals = df[TARGET]
+    total_readings = len(aqi_vals)
+    
+    categories = [
+        ("Good", 0, 50, "#22c55e"),
+        ("Moderate", 51, 100, "#86efac"),
+        ("Unhealthy for Sensitive", 101, 150, "#facc15"),
+        ("Unhealthy", 151, 200, "#f97316"),
+        ("Very Unhealthy", 201, 300, "#ef4444"),
+        ("Hazardous", 301, 500, "#7c3aed")
+    ]
+    
+    for label, min_val, max_val, color in categories:
+        count = ((aqi_vals >= min_val) & (aqi_vals <= max_val)).sum()
+        pct = (count / total_readings * 100) if total_readings > 0 else 0
+        st.markdown(f"""
+        <div class="cat-cell" style="--cbg:{color}12;--cborder:{color}30;--ccolor:{color}">
+            <div class="cat-name">{label}</div>
+            <div class="cat-pct">{pct:.1f}%</div>
+            <div class="cat-count">{count} readings</div>
+        </div>""", unsafe_allow_html=True)
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('<div style="text-align:center;margin-top:1rem;color:#666;font-size:0.9rem">Analysis of air quality distribution in the selected data range.</div>', unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ADMIN TABS (Full)
@@ -602,6 +826,19 @@ def admin_tab_overview(df, TARGET, selected_poll, C):
 
 def admin_tab_forecast(df, df_raw, TARGET, C):
     st.markdown('<div class="sec-lbl">XGBoost Forecast Engine</div>', unsafe_allow_html=True)
+
+    # If no dataset uploaded, prompt to upload in this tab
+    if df_raw is None:
+        st.markdown('<div class="sec-lbl">Upload Dataset for Forecasting</div>', unsafe_allow_html=True)
+        uploaded_forecast = st.file_uploader("Upload CSV for Forecasting", type=["csv"], key="forecast_upload")
+        if uploaded_forecast:
+            df_raw = load_csv(uploaded_forecast)
+            TARGET = find_target(df_raw)
+            st.session_state["admin_df"] = df_raw
+            st.session_state["admin_target"] = TARGET
+            st.success("Dataset loaded. Retrain the model if needed.")
+            st.rerun()
+        return
 
     saved = load_metrics()
     if saved:
@@ -693,6 +930,40 @@ def admin_tab_forecast(df, df_raw, TARGET, C):
                 </div>
             </div>""", unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
+
+    # Next Prediction Section
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown('<div class="cw"><div class="cw-title">Next Hour AQI Prediction</div>', unsafe_allow_html=True)
+    
+    # Use session state for df_raw and TARGET
+    df_raw = st.session_state.get("admin_df")
+    TARGET = st.session_state.get("admin_target")
+    if df_raw is not None and TARGET in df_raw.columns:
+        try:
+            next_pred = predict_next(df_raw, TARGET, model, list(X.columns))
+            if next_pred is not None:
+                pred_label, pred_color = classify_aqi(next_pred)
+                st.markdown(f"""
+                <div style="text-align:center;padding:1.5rem;background:{C['card']};border:1px solid {C['border']};border-radius:12px;">
+                    <div style="font-size:2rem;font-weight:800;color:{pred_color}">{next_pred:.1f}</div>
+                    <div style="font-size:1.1rem;font-weight:600;color:{pred_color}">{pred_label}</div>
+                    <div style="font-size:0.9rem;color:{C['text2']};margin-top:0.5rem">Predicted AQI for next hour</div>
+                </div>""", unsafe_allow_html=True)
+                
+                advice = aqi_advice(pred_label)
+                st.markdown(f"""
+                <div style="margin-top:1rem;padding:1rem;background:{pred_color}12;border:1px solid {pred_color}30;border-radius:8px;">
+                    <div style="font-weight:600;color:{pred_color}">Health Advice:</div>
+                    <div style="color:{C['text']};margin-top:0.3rem">{advice}</div>
+                </div>""", unsafe_allow_html=True)
+            else:
+                st.error("Unable to generate prediction.")
+        except Exception as e:
+            st.error(f"Prediction failed: {e}")
+    else:
+        st.info("Upload a dataset and train the model to see predictions.")
+    
+    st.markdown('</div>', unsafe_allow_html=True)
 
     if os.path.exists(MODEL_FILE):
         st.markdown("<br>", unsafe_allow_html=True)
@@ -979,10 +1250,13 @@ def main():
     C = get_theme(st.session_state.dark_mode)
     inject_base_css(C, role)
 
+    # Determine effective role for sidebar
+    effective_role = "admin" if role == "admin" and not st.session_state.admin_view_user else "user"
+    uploaded, selected_poll, alert_thr = render_sidebar(C, effective_role, is_combined=True)
+
     # Admin view toggle
     if role == "admin" and st.session_state.admin_view_user:
         # Show user interface for admin
-        uploaded = render_user_sidebar(C)
         render_topbar(C, "user", None, None)
 
         df_raw = None
@@ -1030,9 +1304,9 @@ def main():
             st.markdown("<br>", unsafe_allow_html=True)
 
             tabs = st.tabs(["Overview", "Model Metrics", "Alerts", "Analysis"])
-            with tabs[0]: user_tab_overview(df, TARGET, C)
+            with tabs[0]: user_tab_overview(df_raw, TARGET, selected_poll, C)
             with tabs[1]: user_tab_model_metrics(C)
-            with tabs[2]: user_tab_alerts(df, TARGET, C)
+            with tabs[2]: user_tab_alerts(df, TARGET, alert_thr, C)
             with tabs[3]: user_tab_analysis(df, TARGET, C)
 
         else:
@@ -1064,18 +1338,14 @@ def main():
 
     else:
         # Normal admin or user interface
-        if role == "admin":
-            uploaded, selected_poll, alert_thr = render_admin_sidebar(C)
-        else:
-            uploaded = render_user_sidebar(C)
-            selected_poll = "AirQualityIndex"  # Default for user
-            alert_thr = 100  # Default for user
-
         df_raw = None
         TARGET = None
         if uploaded:
             df_raw = load_csv(uploaded)
             TARGET = find_target(df_raw)
+            if role == "admin":
+                st.session_state["admin_df"] = df_raw
+                st.session_state["admin_target"] = TARGET
             if TARGET is None:
                 candidates = auto_detect_target(df_raw)
                 if candidates:
@@ -1133,11 +1403,10 @@ def main():
                 elif nav == "System":
                     admin_tab_system(C)
             else:
-                tabs = st.tabs(["Overview", "Model Metrics", "Alerts", "Analysis"])
-                with tabs[0]: user_tab_overview(df, TARGET, C)
+                tabs = st.tabs(["Overview", "Model Metrics", "Alerts"])
+                with tabs[0]: user_tab_overview(df, TARGET, selected_poll, C)
                 with tabs[1]: user_tab_model_metrics(C)
-                with tabs[2]: user_tab_alerts(df, TARGET, C)
-                with tabs[3]: user_tab_analysis(df, TARGET, C)
+                with tabs[2]: user_tab_alerts(df, TARGET, alert_thr, C)
 
         else:
             # No dataset
@@ -1181,31 +1450,36 @@ def main():
                 elif nav == "System":
                     admin_tab_system(C)
             else:
+                # Show full dashboard even without uploaded data - use demo data
+                import joblib
+                
+                # Create demo data for display
+                demo_data = {
+                    'Datetime': pd.date_range('2024-01-01', periods=100, freq='h'),
+                    'AirQualityIndex': np.random.normal(120, 30, 100).clip(0, 500),
+                    'PM2.5': np.random.normal(60, 20, 100).clip(0, 200),
+                    'PM10': np.random.normal(100, 30, 100).clip(0, 300),
+                    'NO2': np.random.normal(40, 15, 100).clip(0, 100),
+                    'CO': np.random.normal(1.5, 0.5, 100).clip(0, 5),
+                }
+                demo_df = pd.DataFrame(demo_data)
+                demo_target = 'AirQualityIndex'
+                
                 st.markdown(f"""
                 <div class="banner" style="--bc:#059669">
-                    <div class="banner-title">No dataset loaded</div>
+                    <div class="banner-title">Demo Dashboard</div>
                     <div class="banner-text">
-                        Upload a CSV from the sidebar to view air quality data.
+                        Viewing sample air quality data. Upload a CSV from the sidebar to view your own data.
                     </div>
                 </div>""", unsafe_allow_html=True)
 
-                saved = load_metrics()
-                if saved:
-                    st.markdown('<div class="sec-lbl">Model Metrics</div>', unsafe_allow_html=True)
-                    for col_w, (lbl, val) in zip(st.columns(3), [
-                        ("R2 Score", str(saved.get("r2","—"))),
-                        ("MAE", str(saved.get("mae","—"))),
-                        ("RMSE", str(saved.get("rmse","—"))),
-                    ]):
-                        with col_w:
-                            st.markdown(f"""
-                            <div class="score-box">
-                                <div class="score-num">{val}</div>
-                                <div class="score-key">{lbl}</div>
-                            </div>""", unsafe_allow_html=True)
-
-                tabs = st.tabs(["Model Metrics"])
-                with tabs[0]: user_tab_model_metrics(C)
+                tabs = st.tabs(["Overview", "Model Metrics", "Alerts"])
+                with tabs[0]: user_tab_overview(demo_df, demo_target, 'PM2.5', C)
+                with tabs[1]: user_tab_model_metrics(C)
+                with tabs[2]: 
+                    # Demo alerts with sample data
+                    st.info("Demo mode: Showing alerts for sample data.")
+                    user_tab_alerts(demo_df, demo_target, 100, C)
 
     # Footer
     st.markdown(f"""
