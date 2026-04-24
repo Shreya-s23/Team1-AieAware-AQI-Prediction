@@ -28,7 +28,7 @@ from utils import (
     engineer_features, train_model,
     model_exists, load_model, load_metrics, save_metrics,
     classify_aqi, aqi_advice, AQI_LEVELS,
-    MODEL_FILE, FEATS_FILE
+    MODEL_FILE, FEATS_FILE, register_user, save_admin_data
 )
 from theme import get_theme, inject_base_css
 from charts import (
@@ -37,6 +37,7 @@ from charts import (
     chart_importance, chart_correlation,
     chart_distribution, chart_alerts, chart_hourly
 )
+from sidebar import render_sidebar
 
 # ─────────────────────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -48,37 +49,26 @@ st.set_page_config(
 )
 
 for k, v in [("dark_mode", False), ("admin_df", None),
-             ("admin_target", None), ("retrain_done", False)]:
+             ("admin_target", None), ("retrain_done", False), ("auth_page", "login")]:
     if k not in st.session_state:
         st.session_state[k] = v
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  AUTH GATE
 # ─────────────────────────────────────────────────────────────────────────────
-def show_login():
+def show_auth():
     C = get_theme(st.session_state.dark_mode)
     inject_base_css(C, "admin")
 
-    st.markdown(f"""
-    <div class="auth-wrap">
-        <div class="auth-logo">
-            <div class="auth-logo-name">Air<span class="accent">Aware</span></div>
-            <div class="auth-logo-sub">Air Quality Intelligence</div>
-        </div>
-        <div style="text-align:center;margin-bottom:1.2rem">
-            <span class="auth-role-tag">Admin Access</span>
-        </div>
-        <div class="auth-divider"></div>
-    </div>""", unsafe_allow_html=True)
-
-    # Center the form
     _, col, _ = st.columns([1, 2, 1])
     with col:
+        page = st.session_state.auth_page
+
         st.markdown(f"""
         <div style="background:{C['card']};border:1px solid {C['border']};
-             border-radius:16px;padding:2rem 1.8rem;">
+             border-radius:16px;padding:2.2rem 1.8rem;margin-top:3rem">
             <div style="text-align:center;margin-bottom:1.5rem">
-                <div style="font-family:'Sora',sans-serif;font-size:1.8rem;
+                <div style="font-family:'Sora',sans-serif;font-size:1.9rem;
                      font-weight:800;letter-spacing:-0.05em;color:{C['text']}">
                     Air<span style="color:#7c3aed">Aware</span>
                 </div>
@@ -91,135 +81,83 @@ def show_login():
                          border:1px solid #7c3aed30;border-radius:5px;
                          padding:3px 10px;font-size:0.62rem;font-weight:700;
                          text-transform:uppercase;letter-spacing:0.08em">
-                        Admin Portal
+                        {'Admin Sign In' if page == 'login' else 'Create Admin Account'}
                     </span>
                 </div>
             </div>
             <div style="height:1px;background:{C['border']};margin:1rem 0"></div>
         """, unsafe_allow_html=True)
 
-        username = st.text_input("Username", placeholder="admin")
-        password = st.text_input("Password", type="password", placeholder="••••••••")
+        if page == "login":
+            _show_login_form(C)
+        else:
+            _show_signup_form(C)
 
-        if st.button("Sign In", use_container_width=True):
-            ok, info = authenticate(username, password)
-            if ok and info.get("role") == "admin":
-                st.session_state.logged_in = True
-                st.session_state.user_info = info
-                st.rerun()
-            elif ok and info.get("role") != "admin":
-                st.error("This account does not have admin privileges.")
-            else:
-                st.error("Invalid username or password.")
-
-        dark_t = st.toggle("Dark Mode", value=st.session_state.dark_mode, key="login_dark")
-        if dark_t != st.session_state.dark_mode:
-            st.session_state.dark_mode = dark_t
-            st.rerun()
-
-        st.markdown(f"""
-            <div style="text-align:center;font-size:0.72rem;
-                 color:{C['text3']};margin-top:1rem">
-                Default credentials: admin / admin123
-            </div>
-        </div>""", unsafe_allow_html=True)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  SIDEBAR
-# ─────────────────────────────────────────────────────────────────────────────
-def render_sidebar(C):
-    with st.sidebar:
-        user = current_user()
-        st.markdown(f"""
-        <div class="sb-brand">
-            <div class="sb-brand-name">Air<span class="accent">Aware</span></div>
-            <div class="sb-brand-sub">Admin Dashboard</div>
-        </div>""", unsafe_allow_html=True)
-
-        # User info
-        st.markdown(f"""
-        <div class="sb-info" style="margin-top:0.8rem">
-            <div class="sb-info-title">Signed in as</div>
-            <div class="sb-info-val">
-                {user.get('name','Administrator')}<br>
-                <span style="color:#7c3aed;font-size:0.65rem">Admin</span>
-            </div>
-        </div>""", unsafe_allow_html=True)
-
-        st.markdown('<div class="sb-div"></div>', unsafe_allow_html=True)
-
-        # Dataset upload
-        st.markdown('<div class="sb-sec"><span class="sb-sec-lbl">Training Dataset</span></div>',
-                    unsafe_allow_html=True)
-        with st.container():
-            st.markdown('<div style="padding:0 1.3rem">', unsafe_allow_html=True)
-            uploaded = st.file_uploader("Upload CSV", type=["csv"],
-                                        label_visibility="collapsed")
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        if uploaded:
+        # Toggle between login and signup
+        if page == "login":
             st.markdown(f"""
-            <div class="sb-info">
-                <div class="sb-info-title">Loaded</div>
-                <div class="sb-info-val">{uploaded.name}</div>
+            <div style="text-align:center;font-size:0.74rem;color:{C['text3']};margin-top:1rem">
+                New admin?
             </div>""", unsafe_allow_html=True)
-
-        st.markdown('<div class="sb-div"></div>', unsafe_allow_html=True)
-
-        # Alert threshold
-        st.markdown('<div class="sb-sec"><span class="sb-sec-lbl">Alert Threshold</span></div>',
-                    unsafe_allow_html=True)
-        with st.container():
-            st.markdown('<div style="padding:0 1.3rem">', unsafe_allow_html=True)
-            alert_thr = st.slider("AQI", 50, 300, 100, 10, label_visibility="collapsed")
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        t_label, t_color = classify_aqi(alert_thr)
-        st.markdown(f"""
-        <div style="margin:0.4rem 1.3rem;background:{t_color}12;border:1px solid {t_color}30;
-             border-radius:8px;padding:0.7rem;text-align:center">
-            <div style="font-family:'Sora',sans-serif;font-size:1.2rem;
-                 font-weight:800;color:{t_color}">{alert_thr}</div>
-            <div style="font-size:0.6rem;font-weight:700;color:{t_color};
-                 text-transform:uppercase;letter-spacing:0.07em">{t_label}</div>
-        </div>""", unsafe_allow_html=True)
-
-        st.markdown('<div class="sb-div"></div>', unsafe_allow_html=True)
-
-        # Pollutant selector
-        st.markdown('<div class="sb-sec"><span class="sb-sec-lbl">Pollutant View</span></div>',
-                    unsafe_allow_html=True)
-        with st.container():
-            st.markdown('<div style="padding:0 1.3rem">', unsafe_allow_html=True)
-            poll_opts = ["AirQualityIndex","PM2.5","PM10","NO2(GT)","CO(GT)","Temperature","Humidity"]
-            selected_poll = st.selectbox("Pollutant", poll_opts, label_visibility="collapsed")
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        st.markdown('<div class="sb-div"></div>', unsafe_allow_html=True)
-
-        # Dark mode
-        st.markdown('<div class="sb-sec"><span class="sb-sec-lbl">Appearance</span></div>',
-                    unsafe_allow_html=True)
-        with st.container():
-            st.markdown('<div style="padding:0 1.3rem">', unsafe_allow_html=True)
-            dark_t = st.toggle("Dark Mode", value=st.session_state.dark_mode)
-            if dark_t != st.session_state.dark_mode:
-                st.session_state.dark_mode = dark_t
+            if st.button("Create Admin Account", use_container_width=True, key="go_signup"):
+                st.session_state.auth_page = "signup"
                 st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        st.markdown('<div class="sb-div"></div>', unsafe_allow_html=True)
-
-        # Logout
-        with st.container():
-            st.markdown('<div style="padding:0.6rem 1.3rem">', unsafe_allow_html=True)
-            if st.button("Sign Out", use_container_width=True):
-                logout()
+        else:
+            st.markdown(f"""
+            <div style="text-align:center;font-size:0.74rem;color:{C['text3']};margin-top:1rem">
+                Already have an admin account?
+            </div>""", unsafe_allow_html=True)
+            if st.button("Sign In", use_container_width=True, key="go_login"):
+                st.session_state.auth_page = "login"
                 st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
 
-    return uploaded, selected_poll, alert_thr
+def _show_login_form(C):
+    username = st.text_input("Username", placeholder="admin")
+    password = st.text_input("Password", type="password", placeholder="••••••••")
+
+    if st.button("Sign In", use_container_width=True):
+        ok, info = authenticate(username, password)
+        if ok and info.get("role") == "admin":
+            st.session_state.logged_in = True
+            st.session_state.user_info = info
+            st.rerun()
+        elif ok and info.get("role") != "admin":
+            st.error("This account does not have admin privileges.")
+        else:
+            st.error("Invalid username or password.")
+
+    dark_t = st.toggle("Dark Mode", value=st.session_state.dark_mode, key="login_dark")
+    if dark_t != st.session_state.dark_mode:
+        st.session_state.dark_mode = dark_t
+        st.rerun()
+
+    st.markdown(f"""
+        <div style="text-align:center;font-size:0.72rem;
+             color:{C['text3']};margin-top:1rem">
+            Default credentials: admin / admin123
+        </div>
+    </div>""", unsafe_allow_html=True)
+
+def _show_signup_form(C):
+    username = st.text_input("Username", placeholder="admin")
+    password = st.text_input("Password", type="password", placeholder="••••••••")
+    name = st.text_input("Full Name", placeholder="Administrator")
+
+    if st.button("Create Account", use_container_width=True):
+        ok, msg = register_user(username, password, name, "admin")
+        if ok:
+            st.success(msg + " Please sign in.")
+            st.session_state.auth_page = "login"
+            st.rerun()
+        else:
+            st.error(msg)
+
+    dark_t = st.toggle("Dark Mode", value=st.session_state.dark_mode, key="signup_dark")
+    if dark_t != st.session_state.dark_mode:
+        st.session_state.dark_mode = dark_t
+        st.rerun()
+
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -694,13 +632,13 @@ def tab_system(C):
 # ─────────────────────────────────────────────────────────────────────────────
 def main():
     if not is_logged_in():
-        show_login()
+        show_auth()
         return
 
     C = get_theme(st.session_state.dark_mode)
     inject_base_css(C, "admin")
 
-    uploaded, selected_poll, alert_thr = render_sidebar(C)
+    uploaded, selected_poll, alert_thr = render_sidebar(C, "admin")
 
     # Load data
     df_raw = None
@@ -712,6 +650,8 @@ def main():
             candidates = auto_detect_target(df_raw)
             if candidates:
                 TARGET = st.selectbox("Select target column:", candidates)
+        if df_raw is not None and TARGET is not None:
+            save_admin_data(df_raw, TARGET)
         render_topbar(C, len(df_raw), TARGET)
     else:
         render_topbar(C)
