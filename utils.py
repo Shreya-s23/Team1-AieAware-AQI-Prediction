@@ -24,6 +24,7 @@ USERS_FILE  = "users.json"
 MODEL_FILE  = "aqi_xgboost_model.pkl"
 FEATS_FILE  = "aqi_feature_columns.pkl"
 METRICS_FILE= "aqi_model_metrics.json"
+ADMIN_DATA_FILE = "admin_dataset.pkl"
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  AUTH HELPERS
@@ -55,7 +56,7 @@ def save_users(users: dict):
     with open(USERS_FILE, "w") as f:
         json.dump(users, f, indent=2)
 
-def register_user(username: str, password: str, name: str) -> tuple[bool, str]:
+def register_user(username: str, password: str, name: str, role: str = "user") -> tuple[bool, str]:
     users = load_users()
     if username in users:
         return False, "Username already exists."
@@ -65,7 +66,7 @@ def register_user(username: str, password: str, name: str) -> tuple[bool, str]:
         return False, "Username must be at least 3 characters."
     users[username] = {
         "password": _hash(password),
-        "role": "user",
+        "role": role,
         "name": name
     }
     save_users(users)
@@ -150,6 +151,22 @@ def load_metrics() -> dict:
         with open(METRICS_FILE, "r") as f:
             return json.load(f)
     return {}
+
+def save_admin_data(df, target_col):
+    data = {
+        "df": df.to_dict('records'),
+        "target_col": target_col
+    }
+    joblib.dump(data, ADMIN_DATA_FILE)
+
+def load_admin_data():
+    if os.path.exists(ADMIN_DATA_FILE):
+        data = joblib.load(ADMIN_DATA_FILE)
+        df = pd.DataFrame(data["df"])
+        if "Datetime" in df.columns:
+            df["Datetime"] = pd.to_datetime(df["Datetime"])
+        return df, data["target_col"]
+    return None, None
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  DATA HELPERS
@@ -236,3 +253,58 @@ def train_model(df, TARGET):
     rmse = np.sqrt(mean_squared_error(y_test, preds))
     r2   = r2_score(y_test, preds)
     return model, X, X_test, y_test, preds, mae, rmse, r2
+
+def predict_next(df, TARGET, model, feature_cols):
+    """
+    Predict the next AQI value (next hour) using the trained model.
+    """
+    if df.empty or TARGET not in df.columns:
+        return None
+    
+    # Engineer features on the df
+    df_eng = engineer_features(df.copy(), TARGET)
+    
+    # Get the last row
+    last_row = df_eng.iloc[-1:].copy()
+    
+    # Create prediction row
+    pred_row = last_row.copy()
+    
+    # Update Datetime to next hour
+    pred_row['Datetime'] = pred_row['Datetime'] + pd.Timedelta(hours=1)
+    
+    # Update time features
+    pred_row['hour'] = pred_row['Datetime'].dt.hour
+    pred_row['day_of_week'] = pred_row['Datetime'].dt.dayofweek
+    pred_row['month'] = pred_row['Datetime'].dt.month
+    pred_row['quarter'] = pred_row['Datetime'].dt.quarter
+    pred_row['day_of_year'] = pred_row['Datetime'].dt.dayofyear
+    
+    # Shift lags for prediction
+    # target_lag_1 becomes the current TARGET (last actual)
+    pred_row['target_lag_1'] = last_row[TARGET].values[0]
+    # target_lag_2 becomes the previous target_lag_1
+    pred_row['target_lag_2'] = last_row['target_lag_1'].values[0]
+    # target_lag_24: shift from 23 hours ago to 24
+    if len(df_eng) > 24:
+        pred_row['target_lag_24'] = df_eng.iloc[-25][TARGET] if len(df_eng) > 24 else last_row['target_lag_24'].values[0]
+    else:
+        pred_row['target_lag_24'] = last_row['target_lag_24'].values[0]
+    
+    # For rolling means, approximate by keeping the same or updating
+    # For simplicity, keep the last rolling mean
+    pred_row['target_roll_mean_3'] = last_row['target_roll_mean_3'].values[0]
+    pred_row['target_roll_mean_24'] = last_row['target_roll_mean_24'].values[0]
+    pred_row['target_roll_std_3'] = last_row['target_roll_std_3'].values[0]
+    
+    # Drop the target column if present
+    if TARGET in pred_row.columns:
+        pred_row = pred_row.drop(columns=[TARGET])
+    
+    # Select only the feature columns
+    pred_features = pred_row[feature_cols]
+    
+    # Predict
+    prediction = model.predict(pred_features)[0]
+    
+    return prediction
